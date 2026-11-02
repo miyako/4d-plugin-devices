@@ -62,12 +62,17 @@ void DEVICES_LIST(sLONG_PTR *pResult, PackagePtr pParams)
                 
 #if VERSIONMAC
 
+    @autoreleasepool {
+    
     NSArray *devices = [DRDevice devices];
     
-    for (unsigned int i = 0; i < [devices count];++i){
+    for (NSUInteger i = 0; i < [devices count];++i){
     
         DRDevice *device = [devices objectAtIndex:i];
-        Param1.appendUTF16String([[devices objectAtIndex:i] displayName]);
+        // appendUTF16String(nil) appends nothing, which would shift every
+        // later element of $1 against $2..$6; append "" instead
+        NSString *displayName = [device displayName];
+        Param1.appendUTF16String(displayName ? displayName : @"");
                 
         NSDictionary *info = [device info];
         Param2.appendUTF16String([NSString stringWithFormat:@"%@", [info objectForKey:DRDevicePhysicalInterconnectKey]]);
@@ -78,6 +83,8 @@ void DEVICES_LIST(sLONG_PTR *pResult, PackagePtr pParams)
         Param6.appendUTF16String([NSString stringWithFormat:@"%d", [device writesDVD]]);
                         
     }
+    
+    } // @autoreleasepool
 
 #else
     DWORD len = GetLogicalDriveStrings(0, NULL);
