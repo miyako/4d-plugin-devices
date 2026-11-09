@@ -10,6 +10,57 @@ Devices lists the CD/DVD drives connected to the computer. It fills six `Text` a
 
 Releases: [github.com/miyako/4d-plugin-devices/releases](https://github.com/miyako/4d-plugin-devices/releases)
 
+## Maintainer release lifecycle
+
+Run **Bump version** manually on the desired branch, choosing patch, minor or
+major. It validates and commits only `Devices.xcodeproj/project.pbxproj` and
+`Info.plist`, then pushes without force or follow-tags. It rejects a branch that
+has moved since dispatch (including during push). It creates no tag and does not
+start Build.
+
+Run **Build** manually on the updated branch when ready. There are no typed
+inputs: the Actions branch selector selects the source snapshot. Every checkout
+uses the immutable dispatch `github.sha`. Pushing a branch or tag does not start
+Build. The strict `X.Y.Z` source version supplies `vX.Y.Z` and the existing
+`Devices-X.Y.Z.zip` / `Devices-X.Y.Z.dmg` asset names.
+
+The source authority is `MARKETING_VERSION`; all configurations'
+`CURRENT_PROJECT_VERSION` and literal source plist version fields must agree.
+The modernization commit established these coordinated fields, not independent
+build counters. Recognized `$(MARKETING_VERSION)` / `${MARKETING_VERSION}` and
+`$(CURRENT_PROJECT_VERSION)` / `${CURRENT_PROJECT_VERSION}` plist references are
+preserved; `CURRENT_PROJECT_VERSION` may reference `MARKETING_VERSION`.
+An absent `CFBundleVersion` stays absent. Prebuilt bundle plists, dependencies,
+4D format versions and manifest IDs are not release-version sources.
+
+Build retains Windows x64, macOS universal verification, cross-platform
+packaging, Developer ID signing, notarization of both assets and DMG stapling.
+Publication is serialized repository-wide across branches. Before building and
+again after all these gates, authenticated, paginated release listing rejects
+any same-tag release (including drafts), and a remote-ref check rejects any
+existing tag. API/auth/network/schema errors fail closed, including on later
+pages. Only a complete successful no-match listing establishes absence.
+
+Publication creates a new, non-force exact-SHA tag and verifies it remotely;
+even a same-SHA creation race is rejected. It then uses a create-only release
+POST with explicit tag, SHA, name, `draft=false`, `prerelease=false` and an empty
+body (the original notes policy: no generated notes). Assets are uploaded only
+after release creation, without clobbering. It never updates or deletes existing
+tags, releases or assets, and does not roll back or retry failed publication.
+
+**Recovery:** a failed run may leave a tag, a public release with no assets, or a
+partially uploaded asset set. Inspect the failed step, remote tag SHA, release
+ID and uploaded assets before deciding on manual recovery. Such partial state
+is intentionally retained, and rerunning Build for that version will reject it.
+Do not blindly retry or automate deletion; reconcile the state explicitly, or
+bump source to a new version for a new release. Listing failures require fixing
+API access, not treating an error or 404 as permission to publish.
+
+Local lifecycle checks (no native build, signing or remote publication):
+`python3 -m unittest discover -s .github/tests -v` and
+`actionlint -ignore SC2013 .github/workflows/*.yml` (ignores the existing
+prebuilt-library loop's ShellCheck advisory, not workflow validation).
+
 ---
 
 ## Requirements & platform notes
