@@ -87,7 +87,7 @@ enumeration, file reads, hardware mutation or user data is exercised.
 
 ### Audit inventory and contracts
 
-The bounded audit at that baseline covered all 42 tracked native files:
+The bounded audit at that baseline covered all 42 tracked C/C++/prefix files:
 `4DPlugin.cpp/.h`, the prefix header, the SDK implementation and five SDK
 headers (`4DPluginAPI.h`, `Flags.h`, `PublicTypes.h`, `PrivateTypes.h`,
 `EntryPoints.h`), `C_TYPES.h`, and every `.cpp/.h` pair for
@@ -96,7 +96,10 @@ headers (`4DPluginAPI.h`, `Flags.h`, `PublicTypes.h`, `PrivateTypes.h`,
 `C_PICTURE`, `C_POINTER`, `C_REAL`, `C_TEXT`, and `C_TIME`. Both native
 projects compile the dispatcher, all wrappers and this SDK; wrapper and
 umbrella includes reach their headers. There are no additional tracked native
-source trees or third-party libraries. Both source and bundled manifests
+source trees or third-party libraries. The Windows solution reaches the same
+project in all four configurations, whose module definition exports
+`FourDPackex`; that SDK entry records the host callback before calling
+`PluginMain` and the dispatcher. Both source and bundled manifests
 declare the same single command, `DEVICES LIST(&Y;&Y;&Y;&Y;&Y;&Y)`; the actual
 dispatcher's selector 1 calls `DEVICES_LIST`, which uses six `ARRAY_TEXT`
 outputs. `&Y` denotes array capability, not a string-ownership guarantee.
