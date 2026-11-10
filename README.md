@@ -61,6 +61,99 @@ Local lifecycle checks (no native build, signing or remote publication):
 `actionlint -ignore SC2013 .github/workflows/*.yml` (ignores the existing
 prebuilt-library loop's ShellCheck advisory, not workflow validation).
 
+## Native ownership maintenance
+
+Run `python3 tests/native/run.py --baseline` on macOS with Xcode command-line
+tools. This compiles the **actual dispatcher, all 16 wrapper implementations,
+and the complete unchanged bundled SDK** directly into a temporary test
+executable with ASan/UBSan. It does not build, sign or package the plugin.
+The Native ownership workflow runs this regression and the lifecycle tests;
+the existing release workflows remain manual.
+
+The same harness first compiles immutable baseline
+`4f5a2240a95fea64d2ae578ee390236bfef02d50`, requiring named negative controls,
+then compiles the working sources, requiring every case to pass. Baseline
+failures cover path double disposal, the unbalanced borrowed file-output
+owner, temporary and overwritten empty picture references, overwritten empty
+strings, and the conversion buffer overread. Fixed cases check exact ASCII,
+BMP, supplementary UTF-16 (surrogate pairs), and empty content; both allocated
+and null empty strings; independently owning array outputs, replacement,
+borrowed copies before owner mutation, shrink, clear, rejected assignments,
+scalar content returns, repeated picture replacement and owning picture
+handoffs that survive wrapper destruction. The synthetic engine counts every
+string allocation, handle and picture reference explicitly; macOS leak
+sanitization is not used. Pictures, paths and bytes are synthetic: no device
+enumeration, file reads, hardware mutation or user data is exercised.
+
+### Audit inventory and contracts
+
+The bounded audit at that baseline covered all 42 tracked C/C++/prefix files:
+`4DPlugin.cpp/.h`, the prefix header, the SDK implementation and five SDK
+headers (`4DPluginAPI.h`, `Flags.h`, `PublicTypes.h`, `PrivateTypes.h`,
+`EntryPoints.h`), `C_TYPES.h`, and every `.cpp/.h` pair for
+`ARRAY_BOOLEAN`, `ARRAY_DATE`, `ARRAY_INTEGER`, `ARRAY_LONGINT`, `ARRAY_REAL`,
+`ARRAY_TEXT`, `ARRAY_TIME`, `C_BLOB`, `C_DATE`, `C_INTEGER`, `C_LONGINT`,
+`C_PICTURE`, `C_POINTER`, `C_REAL`, `C_TEXT`, and `C_TIME`. Both native
+projects compile the dispatcher, all wrappers and this SDK; wrapper and
+umbrella includes reach their headers. There are no additional tracked native
+source trees or third-party libraries. The Windows solution reaches the same
+project in all four configurations, whose module definition exports
+`FourDPackex`; that SDK entry records the host callback before calling
+`PluginMain` and the dispatcher. Both source and bundled manifests
+declare the same single command, `DEVICES LIST(&Y;&Y;&Y;&Y;&Y;&Y)`; the actual
+dispatcher's selector 1 calls `DEVICES_LIST`, which uses six `ARRAY_TEXT`
+outputs. `&Y` denotes array capability, not a string-ownership guarantee.
+The picture and pointer wrappers are compiled but dormant in this dispatcher.
+Other numeric/date wrappers do not own SDK strings; blob text helpers copy
+through `C_TEXT`.
+
+The canonical guidance used was `miyako/skills`'s
+`4d-skills/skills/4dplugin/SKILL.md` at
+`e6b492fcb81e5e1a7f7db723594b420e63bf6eb9` (including merged changes 69/71).
+The bundled `4DPluginAPI.c` SHA-256 is
+`355ee208ad6c61dcc68e8432546fc42484888211dd07ed8fa3fdb4440f3edbd8`;
+its bytes match the historical `devices/4D Plugin API/4DPluginAPI.c` at
+`bbcba6f16c47344ba0b8c8964d49abff3e47ab94`, before the root-directory move.
+The `v13`/`v14` comments are not a verified upstream SDK release identity.
+
+| Bundled SDK boundary | Verified consequence |
+|---|---|
+| `PA_SetStringInArray` (`4DPluginAPI.c:4444-4459`) | Valid Unicode array, non-null data, index 0 through count and non-null descriptor: dispose old element, shallow-transfer input. Wrong type, null data, negative/high index or null descriptor: no transfer. `ARRAY_TEXT` already preserves accepted transfers; no blanket disposal removal was needed. |
+| `PA_GetStringInArray` (`4266-4283`) | Borrowed descriptor. Wrappers copy its UTF-16 content before changing its owner; distinct outputs need independent allocations. |
+| `PA_SetStringVariable` / `PA_SetPictureVariable` (`3826-3831` / `3852-3857`) | Shallow assignments, not content copies or old-value cleanup. Initialize an immediately overwritten argument as Undefined rather than allocating and losing an empty value. A transferred path is cleared only through its argument owner. |
+| `PA_GetPictureVariable` / `PA_DuplicatePicture` (`3730-3737` / `447-454`) | Getter is borrowed; duplicate with `retainOnly=1` retains. Retain the file output before clearing its owning argument; release the temporary original after `setBytes` retains it. Returned conversion/grayscale/thumbnail pictures remain owning handoffs for the caller to dispose. Read-only borrowed picture arguments are disarmed before argument cleanup. |
+| `PA_SetUnistring` / `PA_ReturnString` (`263-270` / `2260-2263`) | Engine-backed content setter, distinct from array struct transfer. The shim supplies independent content ownership and checks the actual forwarding paths. |
+| `PA_ConvertCharsetToCharset` (`4775-4792`) | Input/output capacities and returned used size are bytes. Divide by `sizeof(PA_Unichar)` for a counted UTF-16 constructor. The shim poisons spare capacity and does not assume a converter terminator; the counted C++ string supplies its own terminator. |
+
+### Explicit limits and deferrals
+
+The harness compiles the real dispatcher but does **not** execute
+`DEVICES_LIST`, DiscRecording enumeration or Windows device APIs. This is
+macOS arm64 synthetic engine evidence, not execution in 4D or Windows, and
+does not certify the originating Windows Poppler crash. The engine is not
+part of this repository, so engine behaviors are modeled only at SDK callback
+boundaries, not replaced with substitute API implementations.
+
+`C_POINTER::getVariable` copies metadata from `PA_GetPointerValue` and marks
+the output as a variable definition. Despite the header's cleanup comment,
+its metadata/value ownership semantics and failed-output initialization are
+not established here; no speculative clear was added. SDK-only application
+path and picture-format output-string ownership also remain unproven;
+`CPicture::_GetCount`/`loadImageOfType` use the latter, so the shim returns
+the documented end-of-representations error and does not invent ownership
+for those strings. Object/collection getters and JSON Parse helpers are
+absent from this SDK/wrapper tree. The five picture command IDs are
+synchronous procedures with no owning function result; there are no
+first-party method callbacks or deferred argument lifetimes.
+
+Normal array tests do not certify out-of-memory behavior:
+`PA_ResizeArray` updates its count even if handle resizing fails. That
+SDK-internal allocation-failure corruption is deferred, not patched or
+hidden by a successful shim resize. General copy-policy changes to dormant
+raw-pointer wrappers and unrelated blob/device behavior are outside this
+bounded fix. No SDK internals, manifests, project settings, shipped binaries,
+or manual release workflows are changed.
+
 ---
 
 ## Requirements & platform notes
